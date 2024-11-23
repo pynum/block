@@ -2,59 +2,65 @@
 pragma solidity ^0.8.0;
 
 contract MerkleTree {
-    
-    // Function to compute the hash of a pair of nodes
-    function hashPair(bytes32 a, bytes32 b) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(a, b));
+    bytes32[] public leaves; // Store the leaves of the Merkle Tree
+    bytes32 public root; // Root hash of the Merkle Tree
+
+    // Add a leaf to the Merkle Tree
+    function addLeaf(string memory leaf) public {
+        bytes32 Leaf = keccak256(abi.encodePacked(leaf)); // Hash the leaf
+        leaves.push(Leaf); // Add the hashed leaf to the leaves array
     }
 
-    // Function to compute the Merkle root from an array of leaves
-    function getMerkleRoot(bytes32[] memory leaves) public pure returns (bytes32) {
-        // If only one leaf, return it as the Merkle root
-        if (leaves.length == 1) {
-            return leaves[0];
+    // Function to calculate the root of the Merkle Tree
+    function calculateRoot() public {
+        require(leaves.length > 0, "No leaves added"); // Ensure there are leaves to calculate the root
+       
+        bytes32[] memory nodes = leaves; // Copy leaves to nodes
+
+        // Repeatedly hash pairs of nodes until we reach the root
+        while (nodes.length > 1) {
+            uint newLength = (nodes.length + 1) / 2; // Calculate the new length for the next level of nodes
+            bytes32[] memory newNodes = new bytes32[](newLength);
+
+            for (uint i = 0; i < nodes.length; i += 2) {
+                // Hash pairs of nodes
+                if (i + 1 < nodes.length) {
+                    newNodes[i / 2] = keccak256(abi.encodePacked(nodes[i], nodes[i + 1]));
+                } else {
+                    newNodes[i / 2] = nodes[i]; // If there's an odd number of nodes, carry the last one up
+                }
+            }
+            nodes = newNodes; // Update nodes with the newly hashed nodes
         }
 
-        // Continue hashing the leaves in pairs
-        while (leaves.length > 1) {
-            uint newLength = (leaves.length + 1) / 2; // Calculate the new length after pairing
-            bytes32[] memory newLeaves = new bytes32[](newLength);
-            
-            for (uint i = 0; i < leaves.length / 2; i++) {
-                newLeaves[i] = hashPair(leaves[2 * i], leaves[2 * i + 1]); // Hash pairs of leaves
-            }
-            
-            // If there's an odd number of leaves, the last one is carried over
-            if (leaves.length % 2 == 1) {
-                newLeaves[newLeaves.length - 1] = leaves[leaves.length - 1];
-            }
-            
-            leaves = newLeaves; // Update leaves for the next round
-        }
-        
-        return leaves[0]; // The root is the only remaining element
+        root = nodes[0]; // The final hash is the Merkle root
     }
 
-    // Function to verify that a leaf is part of the Merkle Tree by checking the Merkle Proof
+    // Verify a Merkle Proof
     function verifyProof(
-        bytes32[] memory proof,
-        bytes32 root,
-        bytes32 leaf
+        string memory Leaf, // Value to be checked
+        bytes32[] memory proof, // Array of all nodes in the proof
+        bytes32 expectedRoot, // Expected hash value of root node
+        uint index // Position of the Leaf in the Merkle Tree
     ) public pure returns (bool) {
-        bytes32 computedHash = leaf;
+        bytes32 leaf = keccak256(abi.encodePacked(Leaf)); // Hash the leaf
+        bytes32 hash = leaf;
 
-        // Traverse through the proof and hash with each element in the proof
+        // Rebuild the hash from the proof
         for (uint i = 0; i < proof.length; i++) {
-            // If the proof element is on the right, we hash the leaf with the proof element
-            if (computedHash < proof[i]) {
-                computedHash = hashPair(computedHash, proof[i]);
+            if (index % 2 == 0) {
+                hash = keccak256(abi.encodePacked(hash, proof[i])); // Hash the leaf with the proof node
             } else {
-                // If the proof element is on the left, we hash the proof element with the leaf
-                computedHash = hashPair(proof[i], computedHash);
+                hash = keccak256(abi.encodePacked(proof[i], hash)); // Hash the proof node with the leaf
             }
+            index = index / 2; // Move to the parent node
         }
 
-        // The computed hash should match the Merkle root if the proof is valid
-        return computedHash == root;
+        return hash == expectedRoot; // Return true if the rebuilt hash matches the expected root
+    }
+
+    // Retrieve the Merkle root
+    function getRoot() public view returns (bytes32) {
+        return root; // Return the current Merkle root
     }
 }
