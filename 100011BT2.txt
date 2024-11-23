@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract MerkleTree {
+    
+    // Function to compute the hash of a pair of nodes
+    function hashPair(bytes32 a, bytes32 b) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(a, b));
+    }
+
+    // Function to compute the Merkle root from an array of leaves
+    function getMerkleRoot(bytes32[] memory leaves) public pure returns (bytes32) {
+        // If only one leaf, return it as the Merkle root
+        if (leaves.length == 1) {
+            return leaves[0];
+        }
+
+        // Continue hashing the leaves in pairs
+        while (leaves.length > 1) {
+            uint newLength = (leaves.length + 1) / 2; // Calculate the new length after pairing
+            bytes32[] memory newLeaves = new bytes32[](newLength);
+            
+            for (uint i = 0; i < leaves.length / 2; i++) {
+                newLeaves[i] = hashPair(leaves[2 * i], leaves[2 * i + 1]); // Hash pairs of leaves
+            }
+            
+            // If there's an odd number of leaves, the last one is carried over
+            if (leaves.length % 2 == 1) {
+                newLeaves[newLeaves.length - 1] = leaves[leaves.length - 1];
+            }
+            
+            leaves = newLeaves; // Update leaves for the next round
+        }
+        
+        return leaves[0]; // The root is the only remaining element
+    }
+
+    // Function to verify that a leaf is part of the Merkle Tree by checking the Merkle Proof
+    function verifyProof(
+        bytes32[] memory proof,
+        bytes32 root,
+        bytes32 leaf
+    ) public pure returns (bool) {
+        bytes32 computedHash = leaf;
+
+        // Traverse through the proof and hash with each element in the proof
+        for (uint i = 0; i < proof.length; i++) {
+            // If the proof element is on the right, we hash the leaf with the proof element
+            if (computedHash < proof[i]) {
+                computedHash = hashPair(computedHash, proof[i]);
+            } else {
+                // If the proof element is on the left, we hash the proof element with the leaf
+                computedHash = hashPair(proof[i], computedHash);
+            }
+        }
+
+        // The computed hash should match the Merkle root if the proof is valid
+        return computedHash == root;
+    }
+}
