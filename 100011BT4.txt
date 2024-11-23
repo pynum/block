@@ -2,52 +2,95 @@
 pragma solidity ^0.8.0;
 
 contract DecentralizedLottery {
-    address public manager; // The manager or owner of the lottery
-    address[] public participants; // List of participants
+    address public manager; // The address of the person who creates and manages the lottery.
+    address[] public players; // Array to store the addresses of players who enter the lottery.
+    uint public entryFee; // The fee required to enter the lottery (in wei).
+    uint public maxPlayers; // The maximum number of players allowed in the lottery.
+    uint public lotteryEndTime; // Timestamp indicating when the lottery ends.
+    uint public winnerIndex; // Index of the selected winner in the `players` array.
+    address public winner; // Address of the winner.
 
-    // Constructor to set the deployer as the manager
-    constructor() {
-        manager = msg.sender; // Set the deployer as the manager
+    // Events for logging actions such as player entry and winner selection.
+    event PlayerEntered(address indexed player); // Logs when a player enters the lottery.
+    event WinnerSelected(address indexed winner, uint amount); // Logs when a winner is selected.
+
+    // Constructor to initialize the lottery contract with required parameters.
+    constructor(uint _entryFee, uint _maxPlayers, uint _durationMinutes) {
+        manager = msg.sender; // Set the manager as the address that deploys the contract.
+        entryFee = _entryFee; // Set the entry fee for the lottery.
+        maxPlayers = _maxPlayers; // Set the maximum number of players allowed.
+        lotteryEndTime = block.timestamp + (_durationMinutes * 1 minutes); // Set the end time for the lottery.
     }
 
-    // Function to allow users to enter the lottery
-    function enter() public payable {
-        require(msg.value == 0.1 ether, "Entry fee is 0.1 Ether"); // Require exactly 0.1 Ether to enter
-        participants.push(msg.sender); // Add the participant to the list
+    // Modifier to restrict function access to only the manager.
+    modifier onlyManager() {
+        require(msg.sender == manager, "Only manager can call this");
+        _;
     }
 
-    // Function to get the total balance of the contract
-    function getBalance() public view returns (uint256) {
-        require(msg.sender == manager, "Only the manager can view the balance"); // Only manager can see the balance
-        return address(this).balance; // Return the balance
+    // Modifier to ensure the lottery is still active.
+    modifier lotteryActive() {
+        require(block.timestamp < lotteryEndTime, "Lottery has ended");
+        _;
     }
 
-    // Private function to generate a pseudo-random number
-    function random() private view returns (uint256) {
-        return uint256(
-            keccak256(
-                abi.encodePacked(block.timestamp, block.difficulty, participants.length)
-            )
-        );
+    // Function for players to enter the lottery by paying the entry fee.
+    function enterLottery() public payable lotteryActive {
+        require(msg.value == entryFee, "Incorrect entry fee"); // Ensure the correct entry fee is paid.
+        require(players.length < maxPlayers, "Player limit reached"); // Ensure the player limit is not exceeded.
+
+        players.push(msg.sender); // Add the player's address to the `players` array.
+        emit PlayerEntered(msg.sender); // Emit the `PlayerEntered` event.
+
+        // Automatically pick the winner if the maximum number of players is reached.
+        if (players.length == maxPlayers) {
+            pickWinner();
+        }
     }
 
-    // Function to pick a winner
-function pickWinner() public {
-    require(msg.sender == manager, "Only the manager can pick a winner");
-    require(participants.length > 0, "No participants to pick a winner");
+    // Function to pick a winner (only callable by the manager).
+    function pickWinner() public onlyManager {
+        require(players.length > 0, "No players in the lottery"); // Ensure there are players in the lottery.
+        require(
+            block.timestamp >= lotteryEndTime || players.length == maxPlayers,
+            "Lottery still active"
+        ); // Ensure the lottery has ended or max players have been reached.
 
-    uint256 winnerIndex = random() % participants.length; // Generate a random index
-    address winner = participants[winnerIndex]; // Select the winner
+        // Use a pseudo-random method to select a winner (not secure for high-value lotteries).
+        winnerIndex = uint(
+            keccak256(abi.encodePacked(block.timestamp, block.prevrandao, players))
+        ) % players.length;
+        winner = players[winnerIndex]; // Set the winner.
 
-    payable(winner).transfer(address(this).balance); // Transfer the entire balance to the winner
+        uint prizeAmount = address(this).balance; // Get the total prize amount.
+        (bool success, ) = winner.call{value: prizeAmount}(""); // Transfer the prize to the winner.
+        require(success, "Transfer failed"); // Ensure the transfer is successful.
 
-    // Reset the participants array by clearing its entries
-    delete participants;
-}
+        emit WinnerSelected(winner, prizeAmount); // Emit the `WinnerSelected` event.
 
+        // Reset the lottery by clearing the players array.
+        while (players.length > 0) {
+            players.pop();
+        }
 
-    // Function to get the list of participants
-    function getParticipants() public view returns (address[] memory) {
-        return participants; // Return the array of participants
+        // Reset the lottery end time to 1 day later (optional for continuous lotteries).
+        lotteryEndTime = block.timestamp + 1 days;
+    }
+
+    // Function to get the list of players.
+    function getPlayers() public view returns (address[] memory) {
+        return players;
+    }
+
+    // Function for the manager to withdraw remaining funds (only if there are no players).
+    function withdraw() public onlyManager {
+        require(players.length == 0, "Players exist, cannot withdraw"); // Ensure no players exist.
+        (bool success, ) = manager.call{value: address(this).balance}(""); // Transfer remaining funds to the manager.
+        require(success, "Withdraw failed"); // Ensure the transfer is successful.
+    }
+
+    // Fallback function to allow players to enter by sending ETH directly to the contract.
+    receive() external payable {
+        enterLottery(); // Call `enterLottery` when ETH is sent.
     }
 }
